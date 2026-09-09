@@ -96,16 +96,28 @@ const dateInputContainer = document.getElementById('dateInputContainer');
 
 if (periodType && dateInputContainer) {
     periodType.addEventListener('change', (e) => {
+        const currentReport = document.querySelector('input[name="reportType"]:checked')?.value;
+        if (currentReport === 'cohort_retention' && e.target.value !== 'month') {
+            alert("Для отчета «Когортная возвратность» базой когорты всегда является календарный месяц.");
+            periodType.value = 'month';
+            // update UI to month input
+            dateInputContainer.innerHTML = `
+                <label for="dateValue">Выбор базового месяца когорты</label>
+                <input type="month" id="dateValue" name="dateValue" class="form-control" required value="2026-08">
+            `;
+            return;
+        }
+
         const val = e.target.value;
         if (val === 'day') {
             dateInputContainer.innerHTML = `
                 <label for="dateValue">Выбор даты</label>
-                <input type="date" id="dateValue" name="dateValue" class="form-control" required value="2026-03-01">
+                <input type="date" id="dateValue" name="dateValue" class="form-control" required value="2026-08-01">
             `;
         } else if (val === 'month') {
             dateInputContainer.innerHTML = `
                 <label for="dateValue">Выбор даты</label>
-                <input type="month" id="dateValue" name="dateValue" class="form-control" required value="2026-03">
+                <input type="month" id="dateValue" name="dateValue" class="form-control" required value="2026-08">
             `;
         } else if (val === 'year') {
             dateInputContainer.innerHTML = `
@@ -116,14 +128,26 @@ if (periodType && dateInputContainer) {
             dateInputContainer.innerHTML = `
                 <label>Интервал дат</label>
                 <div style="display: flex; gap: 10px;">
-                    <input type="date" id="dateStart" class="form-control" required value="2026-03-01" style="flex: 1;">
+                    <input type="date" id="dateStart" class="form-control" required value="2026-08-01" style="flex: 1;">
                     <span style="align-self: center; color: var(--text-muted);">по</span>
-                    <input type="date" id="dateEnd" class="form-control" required value="2026-03-15" style="flex: 1;">
+                    <input type="date" id="dateEnd" class="form-control" required value="2026-08-31" style="flex: 1;">
                 </div>
             `;
         }
     });
 }
+
+// Слушатель выбора типа отчета: при клике на Когортную возвратность переключаем на Месяц
+document.querySelectorAll('input[name="reportType"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        if (e.target.value === 'cohort_retention') {
+            if (periodType && periodType.value !== 'month') {
+                periodType.value = 'month';
+                periodType.dispatchEvent(new Event('change'));
+            }
+        }
+    });
+});
 
 const selectAll = document.getElementById('selectAllParks');
 const deselectAll = document.getElementById('deselectAllParks');

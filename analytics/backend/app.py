@@ -15,6 +15,7 @@ from backend.reports.playtime import generate_playtime
 from backend.reports.sessions import generate_sessions
 from backend.reports.repeat_visits import generate_repeat_visits
 from backend.reports.quest_depth import generate_quest_depth
+from backend.reports.cohort_retention import generate_cohort_retention
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
@@ -66,9 +67,9 @@ def generate_report():
         elif report_type == "sessions":
             generate_sessions(date_val, period_type, selected_parks, output_path)
             filename = f"Sessions_Report_{date_val}.xlsx"
-        elif report_type == "repeat_visits":
-            generate_repeat_visits(date_val, period_type, selected_parks, output_path)
-            filename = f"Repeat_Visits_Report_{date_val}.xlsx"
+        elif report_type in ["cohort_retention", "repeat_visits"]:
+            generate_cohort_retention(date_val, period_type, selected_parks, output_path)
+            filename = f"Cohort_Retention_{date_val}.xlsx"
         elif report_type == "quest_depth":
             generate_quest_depth(date_val, period_type, selected_parks, output_path)
             filename = f"Quest_Depth_Report_{date_val}.xlsx"
