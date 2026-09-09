@@ -1,16 +1,19 @@
+from dotenv import load_dotenv
+
+try:
+    load_dotenv()
+except Exception:
+    pass
+
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
 import tempfile
-from dotenv import load_dotenv
-
-# Загружаем переменные из .env если файл есть
-load_dotenv()
-
 from backend.reports.avatars import generate_avatars
 from backend.reports.conversion import generate_conversion
 from backend.reports.playtime import generate_playtime
 from backend.reports.sessions import generate_sessions
+from backend.reports.repeat_visits import generate_repeat_visits
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
@@ -31,7 +34,6 @@ def health_check():
         "token_length": len(token),
         "token_preview": masked
     })
-
 
 @app.route("/api/generate", methods=["POST"])
 def generate_report():
@@ -63,6 +65,9 @@ def generate_report():
         elif report_type == "sessions":
             generate_sessions(date_val, period_type, selected_parks, output_path)
             filename = f"Sessions_Report_{date_val}.xlsx"
+        elif report_type == "repeat_visits":
+            generate_repeat_visits(date_val, period_type, selected_parks, output_path)
+            filename = f"Repeat_Visits_Report_{date_val}.xlsx"
         else:
             return jsonify({"error": "Invalid report type"}), 400
 

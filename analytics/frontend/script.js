@@ -136,3 +136,4 @@ if (selectAll && deselectAll) {
         document.querySelectorAll('input[name="park"]').forEach(cb => cb.checked = false);
     });
 }
+

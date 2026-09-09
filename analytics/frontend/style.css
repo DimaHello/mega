@@ -221,6 +221,9 @@ label {
 .report-card {
     cursor: pointer;
 }
+.report-card:last-child:nth-child(odd) {
+    grid-column: span 2;
+}
 .report-card input {
     display: none;
 }
@@ -325,6 +328,9 @@ label {
     }
     .cards-container {
         grid-template-columns: 1fr;
+    }
+    .report-card:last-child:nth-child(odd) {
+        grid-column: span 1;
     }
     .parks-grid {
         grid-template-columns: repeat(2, 1fr);
