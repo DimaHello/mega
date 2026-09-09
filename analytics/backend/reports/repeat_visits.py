@@ -8,30 +8,29 @@ def generate_repeat_visits(date_val: str, period_type: str, selected_parks: list
     
     # 1. Шаг 1: Кол-во привязанных аватаров (AvatarLinkedInHome)
     flux_avatars = f"""
-    from(bucket: \"Analytics_AvatarBD\")
+    from(bucket: "Analytics_AvatarBD")
       |> range(start: {start_date}, stop: {stop_date})
-      |> filter(fn: (r) => r[\"_measurement\"] == \"AvatarLinkedInHome\")
-      |> filter(fn: (r) => exists r[\"id\"])
-      |> group(columns: [\"park\", \"id\"])
-      |> limit(n: 1)
-      |> group(columns: [\"park\"])
-      |> count(column: \"_value\")
-      |> yield(name: \"avatars\")
+      |> filter(fn: (r) => r["_measurement"] == "AvatarLinkedInHome")
+      |> filter(fn: (r) => exists r["id"])
+      |> group(columns: ["park"])
+      |> unique(column: "id")
+      |> count(column: "id")
+      |> yield(name: "avatars")
     """
     
     # 2. Шаг 2 и 3: Повторные посещения (userBindRfid c дедупликацией 12h)
     flux_visits = f"""
     DedupWindow = 12h
 
-    binds = from(bucket: \"Analytics_AvatarBD\")
+    binds = from(bucket: "Analytics_AvatarBD")
       |> range(start: {start_date}, stop: {stop_date})
-      |> filter(fn: (r) => r._measurement == \"userBindRfid\")
-      |> filter(fn: (r) => r._field == \"user_id\")
-      |> duplicate(column: \"_value\", as: \"id\")
+      |> filter(fn: (r) => r._measurement == "userBindRfid")
+      |> filter(fn: (r) => r._field == "user_id")
+      |> duplicate(column: "_value", as: "id")
       |> map(fn: (r) => ({{ r with _value: 1 }}))
-      |> keep(columns: [\"_time\", \"_value\", \"id\", \"park\"])
-      |> group(columns: [\"park\", \"id\"])
-      |> sort(columns: [\"_time\"])
+      |> keep(columns: ["_time", "_value", "id", "park"])
+      |> group(columns: ["park", "id"])
+      |> sort(columns: ["_time"])
 
     firstBinds = binds |> first()
 
@@ -40,43 +39,43 @@ def generate_repeat_visits(date_val: str, period_type: str, selected_parks: list
       |> filter(fn: (r) => r.elapsed >= int(v: DedupWindow))
 
     union(tables: [firstBinds, laterBinds])
-      |> group(columns: [\"park\", \"id\"])
-      |> count(column: \"_value\")
-      |> group(columns: [\"park\", \"_value\"])
-      |> count(column: \"id\")
-      |> yield(name: \"visits\")
+      |> group(columns: ["park", "id"])
+      |> count(column: "_value")
+      |> group(columns: ["park", "_value"])
+      |> count(column: "id")
+      |> yield(name: "visits")
     """
     
     # Выполняем запрос аватаров
     avatars_data = {}
     try:
         p_av = {"queries": [{"refId": "A", "datasource": {"type": "influxdb", "uid": DATASOURCE_UID}, "query": flux_avatars}], "from": "0", "to": "9999999999999"}
-        r_av = requests.post(f"{GRAFANA_URL}/api/ds/query", headers=get_headers(), json=p_av, timeout=45)
+        r_av = requests.post(f"{GRAFANA_URL}/api/ds/query", headers=get_headers(), json=p_av, timeout=90)
         r_av.raise_for_status()
         for frame in r_av.json().get("results", {}).get("A", {}).get("frames", []):
-            park_name = "Unknown"
+            labels = {}
             for field in frame.get("schema", {}).get("fields", []):
-                if "park" in field.get("labels", {}):
-                    park_name = field["labels"]["park"]
-                    break
-            park_name = normalize_park_name(park_name)
+                if field.get("labels"):
+                    labels.update(field["labels"])
+            park_name = normalize_park_name(labels.get("park", "Unknown"))
             vals = frame.get("data", {}).get("values", [])
-            if len(vals) > 0 and len(vals[0]) > 0:
+            if vals and len(vals) > 0 and len(vals[0]) > 0:
                 val = vals[0][0] or 0
-                avatars_data[park_name] = avatars_data.get(park_name, 0) + val
+                avatars_data[park_name] = avatars_data.get(park_name, 0) + int(val)
     except Exception as e:
-        print(f"Error querying AvatarLinkedInHome: {e}")
+        print(f"Error querying AvatarLinkedInHome: {e}", flush=True)
 
     # Выполняем запрос посещений
     visits_data = {}
     try:
         p_vis = {"queries": [{"refId": "A", "datasource": {"type": "influxdb", "uid": DATASOURCE_UID}, "query": flux_visits}], "from": "0", "to": "9999999999999"}
-        r_vis = requests.post(f"{GRAFANA_URL}/api/ds/query", headers=get_headers(), json=p_vis, timeout=60)
+        r_vis = requests.post(f"{GRAFANA_URL}/api/ds/query", headers=get_headers(), json=p_vis, timeout=90)
         r_vis.raise_for_status()
         for frame in r_vis.json().get("results", {}).get("A", {}).get("frames", []):
             labels = {}
             for field in frame.get("schema", {}).get("fields", []):
-                labels.update(field.get("labels", {}))
+                if field.get("labels"):
+                    labels.update(field["labels"])
             park_name = normalize_park_name(labels.get("park", "Unknown"))
             try:
                 visit_count = int(labels.get("_value", 0))
@@ -87,15 +86,21 @@ def generate_repeat_visits(date_val: str, period_type: str, selected_parks: list
             
             if park_name not in visits_data:
                 visits_data[park_name] = {}
-            visits_data[park_name][visit_count] = visits_data[park_name].get(visit_count, 0) + user_count
+            visits_data[park_name][visit_count] = visits_data[park_name].get(visit_count, 0) + int(user_count)
     except Exception as e:
-        print(f"Error querying userBindRfid: {e}")
+        print(f"Error querying userBindRfid: {e}", flush=True)
 
-    # Формируем список парков
-    all_parks = sorted([
-        p for p in set(avatars_data.keys()).union(set(visits_data.keys()))
-        if p not in ["OFFICE", "QA-TTUZOV", "Unknown"] and p in selected_parks
-    ])
+    # Формируем список парков (все выбранные парки гарантированно присутствуют в отчете)
+    clean_selected = [
+        normalize_park_name(p) for p in selected_parks
+        if p not in ["OFFICE", "QA-TTUZOV", "Unknown"]
+    ]
+    all_parks = sorted(list(set(clean_selected)))
+    if not all_parks:
+        all_parks = sorted([
+            p for p in set(avatars_data.keys()).union(set(visits_data.keys()))
+            if p not in ["OFFICE", "QA-TTUZOV", "Unknown"]
+        ])
 
     rows = []
     for park in all_parks:
