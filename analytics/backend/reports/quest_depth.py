@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 import requests
 import pandas as pd
 from backend.reports.common import (
@@ -26,12 +28,28 @@ PARK_BASIS = {
     "VORONEZH": 42,
 }
 
-def generate_quest_depth(date_val: str, period_type: str, selected_parks: list, output_path: str):
-    start_date, stop_date, _ = get_time_boundaries(date_val, period_type)
+def get_interval_chunks(start_iso: str, stop_iso: str, max_chunk_days: int = 31):
+    """
+    Разбивает временной интервал на отрезки не более max_chunk_days дней,
+    чтобы избежать таймаутов InfluxDB/Grafana при сканировании года или длинных периодов.
+    """
+    dt_start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+    dt_stop = datetime.fromisoformat(stop_iso.replace("Z", "+00:00"))
+    chunks = []
+    curr = dt_start
+    while curr < dt_stop:
+        nxt = min(curr + timedelta(days=max_chunk_days), dt_stop)
+        chunks.append((
+            curr.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        ))
+        curr = nxt
+    return chunks
 
+def fetch_chunk_metrics(start_iso: str, stop_iso: str):
     flux_total_tasks = f"""
     from(bucket: "Analytics_AvatarBD")
-      |> range(start: {start_date}, stop: {stop_date})
+      |> range(start: {start_iso}, stop: {stop_iso})
       |> filter(fn: (r) => r["_measurement"] == "AchievementCounted")
       |> filter(fn: (r) => exists r["id"])
       |> group(columns: ["park"])
@@ -41,7 +59,7 @@ def generate_quest_depth(date_val: str, period_type: str, selected_parks: list, 
 
     flux_users = f"""
     from(bucket: "Analytics_AvatarBD")
-      |> range(start: {start_date}, stop: {stop_date})
+      |> range(start: {start_iso}, stop: {stop_iso})
       |> filter(fn: (r) => r["_measurement"] == "AchievementCounted")
       |> filter(fn: (r) => exists r["id"])
       |> group(columns: ["park", "id"])
@@ -60,14 +78,11 @@ def generate_quest_depth(date_val: str, period_type: str, selected_parks: list, 
         "to": "9999999999999"
     }
 
-    try:
-        response = requests.post(f"{GRAFANA_URL}/api/ds/query", headers=get_headers(), json=payload, timeout=45)
-        response.raise_for_status()
-        resp_json = response.json()
-    except Exception as e:
-        raise Exception(f"Ошибка при запросе данных из Grafana: {e}")
+    response = requests.post(f"{GRAFANA_URL}/api/ds/query", headers=get_headers(), json=payload, timeout=60)
+    response.raise_for_status()
+    resp_json = response.json()
 
-    total_tasks_map = {}
+    chunk_tasks = {}
     for frame in resp_json.get("results", {}).get("A", {}).get("frames", []):
         park = "Unknown"
         for field in frame.get("schema", {}).get("fields", []):
@@ -77,9 +92,9 @@ def generate_quest_depth(date_val: str, period_type: str, selected_parks: list, 
         park = normalize_park_name(park)
         vals = frame.get("data", {}).get("values", [])
         if vals and len(vals[0]) > 0:
-            total_tasks_map[park] = total_tasks_map.get(park, 0) + (vals[0][0] or 0)
+            chunk_tasks[park] = chunk_tasks.get(park, 0) + (vals[0][0] or 0)
 
-    users_map = {}
+    chunk_users = {}
     for frame in resp_json.get("results", {}).get("B", {}).get("frames", []):
         park = "Unknown"
         for field in frame.get("schema", {}).get("fields", []):
@@ -89,7 +104,34 @@ def generate_quest_depth(date_val: str, period_type: str, selected_parks: list, 
         park = normalize_park_name(park)
         vals = frame.get("data", {}).get("values", [])
         if vals and len(vals[0]) > 0:
-            users_map[park] = users_map.get(park, 0) + (vals[0][0] or 0)
+            chunk_users[park] = chunk_users.get(park, 0) + (vals[0][0] or 0)
+
+    return chunk_tasks, chunk_users
+
+def generate_quest_depth(date_val: str, period_type: str, selected_parks: list, output_path: str):
+    start_date, stop_date, _ = get_time_boundaries(date_val, period_type)
+    chunks = get_interval_chunks(start_date, stop_date, max_chunk_days=31)
+
+    total_tasks_map = {}
+    users_map = {}
+
+    try:
+        max_workers = min(6, len(chunks))
+        if max_workers <= 1:
+            c_tasks, c_users = fetch_chunk_metrics(chunks[0][0], chunks[0][1])
+            total_tasks_map = c_tasks
+            users_map = c_users
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(fetch_chunk_metrics, s, e) for s, e in chunks]
+                for f in futures:
+                    c_tasks, c_users = f.result()
+                    for p, t in c_tasks.items():
+                        total_tasks_map[p] = total_tasks_map.get(p, 0) + t
+                    for p, u in c_users.items():
+                        users_map[p] = users_map.get(p, 0) + u
+    except Exception as e:
+        raise Exception(f"Ошибка при запросе данных из Grafana: {e}")
 
     # Нормализуем выбранные парки
     parks_to_include = sorted([p for p in selected_parks if p in PARK_BASIS and p != "OFFICE"])
