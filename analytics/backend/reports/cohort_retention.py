@@ -199,7 +199,7 @@ def generate_cohort_retention(date_val: str, period_type: str, selected_parks: l
             s_ts = m["s_ts"]
             e_ts = m["e_ts"]
             
-            col_name_abs = f"M0 ({lbl})" if step == 0 else f"+{step}M ({lbl})"
+            col_name_abs = f"M0 ({lbl})" if step == 0 else f"{step}M ({lbl})"
             col_name_pct = f"%_{step}"
             
             if status == "future":
@@ -234,7 +234,9 @@ def generate_cohort_retention(date_val: str, period_type: str, selected_parks: l
         row["%_ltv"] = tot_pct
         rows.append(row)
 
-    # Строка ИТОГО
+    # Строка ИТОГО:
+    # База когорты суммируется, промежуточные месяцы не суммируются,
+    # а в конце выводится средняя по всем паркам возвращаемость.
     total_cohort = sum([r[f"Когорта ({m0_label})"] for r in rows])
     row_total = {
         "Парк": "ИТОГО",
@@ -244,24 +246,17 @@ def generate_cohort_retention(date_val: str, period_type: str, selected_parks: l
     for m in months_info:
         step = m["step"]
         lbl = m["label"]
-        status = m["status"]
-        
-        col_name_abs = f"M0 ({lbl})" if step == 0 else f"+{step}M ({lbl})"
+        col_name_abs = f"M0 ({lbl})" if step == 0 else f"{step}M ({lbl})"
         col_name_pct = f"%_{step}"
-        
-        if status == "future":
-            row_total[col_name_abs] = "—"
-            row_total[col_name_pct] = "—"
-        else:
-            tot_step_abs = sum([r[col_name_abs] for r in rows if isinstance(r[col_name_abs], (int, float))])
-            tot_step_pct = round(tot_step_abs / total_cohort * 100, 2) if total_cohort > 0 else 0.0
-            row_total[col_name_abs] = tot_step_abs
-            row_total[col_name_pct] = tot_step_pct
+        row_total[col_name_abs] = ""
+        row_total[col_name_pct] = ""
 
     tot_ltv_abs = sum([r["Всего вернулись (LTV)"] for r in rows if isinstance(r["Всего вернулись (LTV)"], (int, float))])
-    tot_ltv_pct = round(tot_ltv_abs / total_cohort * 100, 2) if total_cohort > 0 else 0.0
+    cohort_parks = [r for r in rows if r[f"Когорта ({m0_label})"] > 0]
+    avg_ltv_pct = round(sum([r["%_ltv"] for r in cohort_parks]) / len(cohort_parks), 2) if cohort_parks else 0.0
+
     row_total["Всего вернулись (LTV)"] = tot_ltv_abs
-    row_total["%_ltv"] = tot_ltv_pct
+    row_total["%_ltv"] = avg_ltv_pct
     
     rows.append(row_total)
     df_final = pd.DataFrame(rows)
@@ -309,13 +304,15 @@ def generate_cohort_retention(date_val: str, period_type: str, selected_parks: l
             
         # Форматирование данных
         for r_idx in range(2, last_row + 1):
+            is_last = (r_idx == last_row)
             for c_idx in range(1, len(df_final.columns) + 1):
                 cell = ws.cell(row=r_idx, column=c_idx)
                 
                 # Колонки с процентами
                 if c_idx in pct_col_indices:
-                    cell.fill = green
-                    if cell.value == "—":
+                    if not is_last:
+                        cell.fill = green
+                    if cell.value in ["—", "", None]:
                         cell.alignment = Alignment(horizontal="center")
                     else:
                         cell.number_format = '0.00"%"'
@@ -325,7 +322,7 @@ def generate_cohort_retention(date_val: str, period_type: str, selected_parks: l
                     cell.alignment = Alignment(horizontal="left")
                 else:
                     # Числовые колонки
-                    if cell.value == "—":
+                    if cell.value in ["—", "", None]:
                         cell.alignment = Alignment(horizontal="center")
                     else:
                         cell.number_format = '#,##0'
