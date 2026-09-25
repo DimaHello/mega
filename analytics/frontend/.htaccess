@@ -1,0 +1,13 @@
+# ====================================================================
+# Hello Park Analytics - HTTP Basic Authentication (.htaccess)
+# ====================================================================
+
+AuthType Basic
+AuthName "Hello Park Analytics Exporter"
+AuthUserFile /app/.htpasswd
+Require valid-user
+
+# Protect hidden files and htaccess / htpasswd
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

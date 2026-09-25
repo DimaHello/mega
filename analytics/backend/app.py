@@ -16,9 +16,11 @@ from backend.reports.sessions import generate_sessions
 from backend.reports.repeat_visits import generate_repeat_visits
 from backend.reports.quest_depth import generate_quest_depth
 from backend.reports.cohort_retention import generate_cohort_retention
+from backend.auth import init_auth
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
+init_auth(app)
 
 @app.route("/")
 @app.route("/index.html")

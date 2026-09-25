@@ -41,6 +41,7 @@ document.getElementById('report-form').addEventListener('submit', async (e) => {
         const apiUrl = window.location.pathname.replace(/\/$/, '') + '/api/generate';
         const response = await fetch(apiUrl, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/json'
             },
@@ -53,6 +54,9 @@ document.getElementById('report-form').addEventListener('submit', async (e) => {
         });
         
         if (!response.ok) {
+            if (response.status === 401) {
+                throw new Error('Требуется авторизация или сессия истекла (401). Пожалуйста, обновите страницу.');
+            }
             let errorText = 'Ошибка при генерации отчета';
             try {
                 const errJson = await response.json();
