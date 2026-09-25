@@ -68,3 +68,8 @@ public/presentation/*.png
 public/presentation/*.jpg
 public/presentation/quest-heroes/
 
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
