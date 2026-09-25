@@ -17,6 +17,7 @@ from backend.reports.quest_depth import generate_quest_depth
 from backend.reports.cohort_retention import generate_cohort_retention
 from backend.auth import init_auth
 
+# Hello Park Analytics Exporter - Protected with HTTP Basic Auth
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
 init_auth(app)
