@@ -187,14 +187,6 @@ def init_auth(app):
         if auth_enabled in ("false", "0", "no", "off"):
             return None
 
-        # Automatically skip auth on local development (localhost / 127.0.0.1)
-        # Authentication is only enforced on production (party.hello-park.io)
-        host = request.host.split(":")[0].lower()
-        is_local = host in ("localhost", "127.0.0.1", "0.0.0.0")
-        force_local = os.environ.get("ANALYTICS_AUTH_FORCE_LOCAL", "false").lower() in ("true", "1", "yes")
-        if is_local and not force_local:
-            return None
-
         username, password = get_auth_credentials()
         if not username or not password or not check_auth(username, password):
             return Response(
